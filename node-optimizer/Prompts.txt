@@ -2,3 +2,10 @@ The size of each node depends on number of cores per node. Each core will be a c
 
 
 Amend the executors to be stacked horizontally only and the cores icon to be positioned vertically (one column of cores) with CORE_SPACE between each core and the space between each executor will be calculated such so that CORE_SPACE will be kept horizontally between cores of different executors.
+
+The size of each node depends on number of cores per node. The number of cores per executor determines the height of the node. Draw the cores of a node which are not used by executor (left over cores) with gray color.
+
+Let the nodes to stack horizontally and vertically based on resizing of the browser and don't zoom them in and out upon resizing. Let all nodes be visible.
+
+Node height is determined by the number of executor cores and not number of node cores. Then the width of the node is determined by ceiling of the value of number of cores in node divided by number of cores of executor.
+

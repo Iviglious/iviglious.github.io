@@ -19,9 +19,13 @@
   const PAD = 20;
   const CORE_SIZE = 20; // px per core cube
   const CORE_SPACE = 40; // vertical spacing between stacked core icons
+  const NODE_WIDTH = 220; // fixed node width to avoid zooming on resize
+  const NODE_GAP = 20; // gap between nodes horizontally and vertically
   const EXECUTOR_HEADER_SPACE = 40; // header area inside executor
+  const EXECUTOR_FOOTER_SPACE = 10; // header area inside executor
   const NODE_HEADER_SPACE = 30; // header area for node label
-  const EXECUTOR_H_PADDING = 8; // left/right padding inside executor
+  const NODE_FOOTER_SPACE = 30; // header area for node label
+  const EXECUTOR_H_PADDING = 10; // left/right padding inside executor
 
   // bevel/shadow constants (adjustable via UI later if desired)
   const INSET_SIZE = 4;
@@ -109,28 +113,30 @@
   }
 
   // draw single vCPU icon (10x10) — draws a small cube-like square
-  function drawVcpu(ctx, x, y){
+  function drawVcpu(ctx, x, y, used=true){
     const s = CORE_SIZE;
     ctx.save();
     // base
     ctx.fillStyle = '#e6f0ff';
+    if (!used) ctx.fillStyle = '#e2e2e2ff';
     ctx.fillRect(x, y, s, s);
     // border
-    ctx.strokeStyle = '#0b6cff'; ctx.lineWidth = 1;
+    ctx.strokeStyle = '#0b6cff';
+    if (!used) ctx.strokeStyle = '#686868ff';
+    ctx.lineWidth = 1;
     ctx.strokeRect(x+0.5, y+0.5, s-1, s-1);
     // inner lines to hint a chip
     ctx.fillStyle = '#0b6cff';
+    if (!used) ctx.fillStyle = '#686868ff';
     ctx.fillRect(x+2, y+2, s-4, 2);
     ctx.fillRect(x+2, y+s-4, s-4, 2);
     ctx.restore();
   }
 
-  // main draw function — schematic layout: nodes stacked vertically, executors stacked inside nodes, each executor shows vCPU icons
-  function draw(distribution){
+  // main draw function — renders nodes using a precomputed layout
+  function draw(distribution, layout){
     // clear
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    const PAD = 20;
-    const areaW = canvas.width - PAD*2;
 
     if(distribution.slotsPerNode===0){
       ctx.fillStyle='#b23';
@@ -140,34 +146,22 @@
     }
 
     const nodes = distribution.perNode.length || distribution.nodesNeeded;
+    const nodeW = layout.nodeW;
+    const columns = layout.columns;
+    const rows = layout.rows;
+    const nodeHeight = layout.nodeHeight;
+    const offsetX = layout.offsetX;
+    const execWidth = layout.execWidth;
+    const spacingX = layout.spacingX;
 
-    // compute node width (use areaW)
-    const nodeW = Math.max(160, areaW - 40);
-
-    // vertical stacking: compute each node height based on number of executors and cores per executor
-    let yCursor = PAD;
     ctx.font = '12px Segoe UI';
 
     for(let idx=0; idx<nodes; idx++){
       const per = distribution.perNode[idx] || 0;
-  // executor dimensions (based on executor cores param)
-
-      // executors arranged horizontally; each executor shows a vertical column of cores
-      const execCores = Math.max(1, Number(executorCores.value) || 1);
-      // executor box width is based on core width plus horizontal padding
-      const execWidth = CORE_SIZE + EXECUTOR_H_PADDING * 2;
-      // horizontal spacing between executor core columns must equal CORE_SPACE
-      const spacingX = CORE_SIZE + CORE_SPACE;
-
-      // compute icons (vertical column) height for one executor
-      const iconsHeight = execCores * CORE_SIZE + Math.max(0, execCores - 1) * CORE_SPACE;
-      const execHeight = EXECUTOR_HEADER_SPACE + iconsHeight + 12; // some bottom padding
-
-      // node height only needs to accommodate one executor row vertically
-      const nodeHeight = NODE_HEADER_SPACE + execHeight + 12; // bottom padding
-
-      const x = PAD + 10;
-      const y = yCursor;
+      const col = idx % columns;
+      const row = Math.floor(idx / columns);
+      const x = offsetX + col * (nodeW + NODE_GAP);
+      const y = PAD + row * (nodeHeight + NODE_GAP);
 
       // draw node box
       drawBeveledRect(ctx, x, y, nodeW, nodeHeight, {filled:false, style:'inset', color:'#ffffff'});
@@ -178,29 +172,35 @@
       const startX = x + Math.max(12, Math.round((nodeW - totalSpan) / 2));
 
       const execY = y + NODE_HEADER_SPACE;
+      // draw executors horizontally
+      const execCores = Math.max(1, Number(executorCores.value) || 1);
       for(let e=0; e<per; e++){
         const exX = startX + e * spacingX; // left edge of executor box
-        // draw executor box centered around its core column (core will be offset inside box)
-        drawBeveledRect(ctx, exX, execY, execWidth, execHeight, {filled:true, style:'outset', color:'#f8fbff'});
-        // draw header area inside executor
-        ctx.fillStyle = '#0b3255'; ctx.font='11px Segoe UI'; ctx.fillText('Ex ' + (e+1), exX + 6, execY + 12);
-        // summary small text inside executor
-        ctx.fillStyle='#083049'; ctx.font='10px Segoe UI'; ctx.fillText((execCores) + 'c ' +'GB', exX + 6, execY + 24);
+        drawBeveledRect(ctx, exX, execY, execWidth, nodeHeight - NODE_HEADER_SPACE - NODE_FOOTER_SPACE, {filled:true, style:'outset', color:'#f8fbff'});
+        ctx.fillStyle = '#0b3255'; ctx.font='11px Segoe UI';
+        ctx.fillText('Ex ' + (e+1), exX + 6, execY + 12);
 
-        // compute x position of the core column (centered inside exec box horizontally)
         const coreColX = exX + Math.round((execWidth - CORE_SIZE) / 2);
-        // draw vertical cores
         for(let c=0; c<execCores; c++){
           const cy = execY + EXECUTOR_HEADER_SPACE + c * (CORE_SIZE + CORE_SPACE);
           drawVcpu(ctx, coreColX, cy);
         }
       }
 
+      // draw leftover cores in gray
+      const nodeCores = Math.max(1, Math.floor(Number(nodeVcpus.value) || 1));
+      const usedCores = per * Math.max(1, Number(executorCores.value) || 1);
+      const leftover = Math.max(0, nodeCores - usedCores);
+      if(leftover > 0){
+        const leftX = per > 0 ? startX + per * spacingX : startX + Math.round((nodeW - execWidth) / 2) + execWidth + CORE_SPACE;
+        for(let l=0; l<leftover; l++){
+          const ly = execY + EXECUTOR_HEADER_SPACE + l * (CORE_SIZE + CORE_SPACE);
+          drawVcpu(ctx, leftX, ly, false);
+        }
+      }
+
       // summary text on node
       ctx.fillStyle='#0b3255'; ctx.fillText(per + ' / ' + distribution.slotsPerNode + ' executors', x + 12, y + nodeHeight - 8);
-
-      // advance cursor for next node
-      yCursor += nodeHeight + 12;
     }
   }
 
@@ -227,15 +227,62 @@
     }
     summary.textContent = txt;
 
-    // adjust canvas resolution for crisp drawing
-    const ratio = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth || 900;
-    const h = canvas.clientHeight || 500;
-    canvas.width = Math.floor(w * ratio);
-    canvas.height = Math.floor(h * ratio);
-    ctx.setTransform(ratio,0,0,ratio,0,0);
+  // compute layout to avoid zooming nodes; layout uses CSS pixels
+  // use the parent container width to decide how many nodes fit per row (prevents canvas CSS scaling horizontally)
+  const containerW = (canvas.parentElement && canvas.parentElement.clientWidth) ? canvas.parentElement.clientWidth : (canvas.clientWidth || NODE_WIDTH);
+  const areaW = containerW - PAD*2;
+  const nodes = distribution.perNode.length || distribution.nodesNeeded;
 
-    draw(distribution);
+  // executor and node core counts
+  const execCores = Math.max(1, Number(executorCores.value) || 1);
+  const nodeCores = Math.max(1, Math.floor(Number(nodeVcpus.value) || 1));
+
+  // executor box metrics
+  const execWidth = CORE_SIZE + EXECUTOR_H_PADDING * 2;
+  const spacingX = CORE_SIZE + CORE_SPACE;
+
+  // node width is determined by how many executor columns fit given node cores
+  const colsPerNode = Math.max(1, Math.ceil(nodeCores / execCores));
+  const nodeW = colsPerNode * execWidth + Math.max(0, colsPerNode - 1) * CORE_SPACE + 24;
+
+  // grid dimensions (how many node boxes fit into the container width)
+  const columns = Math.max(1, Math.floor((areaW + NODE_GAP) / (nodeW + NODE_GAP)));
+  const rows = Math.ceil(nodes / columns) || 1;
+
+  // node height depends on executor cores (vertical column height)
+  const executorHeight = EXECUTOR_HEADER_SPACE + execCores * CORE_SIZE + Math.max(0, execCores - 1) * CORE_SPACE + EXECUTOR_FOOTER_SPACE;
+  const nodeHeight = NODE_HEADER_SPACE + executorHeight + NODE_FOOTER_SPACE; // in CSS px
+
+  // required CSS width/height for the whole grid
+  const totalGridWidth = columns * nodeW + Math.max(0, columns - 1) * NODE_GAP;
+  const requiredWidth = PAD + totalGridWidth + PAD;
+  const requiredHeight = PAD + rows * nodeHeight + Math.max(0, rows - 1) * NODE_GAP + PAD;
+
+  // set canvas DOM/CSS size so the page will scroll instead of scaling canvas content
+  canvas.style.width = requiredWidth + 'px';
+  canvas.style.height = requiredHeight + 'px';
+
+  // now set canvas bitmap size according to DPR and CSS size (use CSS sizes we just set)
+  const ratio = window.devicePixelRatio || 1;
+  const w = requiredWidth;
+  const h = requiredHeight;
+  canvas.width = Math.floor(w * ratio);
+  canvas.height = Math.floor(h * ratio);
+  ctx.setTransform(ratio,0,0,ratio,0,0);
+
+  // prepare layout object passed into draw
+  const layout = {
+    nodeW,
+    colsPerNode,
+    columns,
+    rows,
+    nodeHeight,
+    offsetX: PAD + Math.round(((requiredWidth - PAD*2) - totalGridWidth) / 2),
+    execWidth,
+    spacingX
+  };
+
+  draw(distribution, layout);
   }
 
   // debounce helper
