@@ -7,10 +7,8 @@
   const executorCores = $('executorCores');
   const executorMemoryGb = $('executorMemoryGb');
   const maxExecutors = $('maxExecutors');
-  const numNodes = $('numNodes');
   const nodeVcpus = $('nodeVcpus');
   const nodeMemoryGb = $('nodeMemoryGb');
-  const fixedNodes = $('fixedNodes');
   const summary = $('summary');
   const canvas = $('canvas');
   const ctx = canvas.getContext('2d');
@@ -145,7 +143,8 @@
       return;
     }
 
-    const nodes = distribution.perNode.length || distribution.nodesNeeded;
+  const nodes = distribution.perNode.length || distribution.nodesNeeded;
+  const nodeCores = Math.max(1, Math.floor(Number(nodeVcpus.value) || 1));
     const nodeW = layout.nodeW;
     const columns = layout.columns;
     const rows = layout.rows;
@@ -163,41 +162,50 @@
       const x = offsetX + col * (nodeW + NODE_GAP);
       const y = PAD + row * (nodeHeight + NODE_GAP);
 
-      // draw node box
-      drawBeveledRect(ctx, x, y, nodeW, nodeHeight, {filled:false, style:'inset', color:'#ffffff'});
-      ctx.fillStyle = '#083049'; ctx.font='12px Segoe UI'; ctx.fillText('Node ' + (idx+1), x + 12, y + 14);
+  // draw node box
+  drawBeveledRect(ctx, x, y, nodeW, nodeHeight, {filled:false, style:'inset', color:'#ffffff'});
+  // compute per-node unused vCPUs
+  const usedCores = per * Math.max(1, Number(executorCores.value));
+  const unusedPerNode = Math.max(0, nodeCores - usedCores);
+  ctx.fillStyle = '#083049'; ctx.font='12px Segoe UI';
+  ctx.fillText('Node ' + (idx+1) + (unusedPerNode > 0 ? ' — ' + unusedPerNode + ' unused vCPUs' : ''), x + 12, y + 14);
 
-      // compute starting X so executors are centered inside the node
-      const totalSpan = per > 0 ? (per - 1) * spacingX + execWidth : execWidth;
+      // compute starting X so executor capacity columns are centered inside the node
+      // always use colsPerNode so all nodes look identical
+      const totalSpan = (layout.colsPerNode - 1) * spacingX + execWidth;
       const startX = x + Math.max(12, Math.round((nodeW - totalSpan) / 2));
 
       const execY = y + NODE_HEADER_SPACE;
-      // draw executors horizontally
       const execCores = Math.max(1, Number(executorCores.value) || 1);
-      for(let e=0; e<per; e++){
-        const exX = startX + e * spacingX; // left edge of executor box
-        drawBeveledRect(ctx, exX, execY, execWidth, nodeHeight - NODE_HEADER_SPACE - NODE_FOOTER_SPACE, {filled:true, style:'outset', color:'#f8fbff'});
-        ctx.fillStyle = '#0b3255'; ctx.font='11px Segoe UI';
-        ctx.fillText('Ex ' + (e+1), exX + 6, execY + 12);
 
-        const coreColX = exX + Math.round((execWidth - CORE_SIZE) / 2);
-        for(let c=0; c<execCores; c++){
-          const cy = execY + EXECUTOR_HEADER_SPACE + c * (CORE_SIZE + CORE_SPACE);
-          drawVcpu(ctx, coreColX, cy);
+      // draw capacity columns (colsPerNode) — each column's vCPU count comes from node vCPUs
+      for(let colIdx = 0; colIdx < layout.colsPerNode; colIdx++){
+        const colX = startX + colIdx * spacingX;
+        const isUsed = colIdx < per;
+
+        // compute how many vCPUs this column represents: full execCores except possibly the last column
+        const isLastCol = (colIdx === layout.colsPerNode - 1);
+        const colCapacity = isLastCol ? Math.max(1, nodeCores - execCores * (layout.colsPerNode - 1)) : execCores;
+
+        if(isUsed){
+          // draw executor box for used column
+          drawBeveledRect(ctx, colX, execY, execWidth, nodeHeight - NODE_HEADER_SPACE - NODE_FOOTER_SPACE, {filled:true, style:'outset', color:'#f8fbff'});
+          ctx.fillStyle = '#0b3255'; ctx.font='11px Segoe UI';
+          ctx.fillText('Ex ' + (colIdx+1), colX + 6, execY + 12);
+        }
+
+        // draw vertical cores in this column — number equals column capacity; colored if column is used
+        const coreColX = colX + Math.round((execWidth - CORE_SIZE) / 2);
+        for(let r=0; r<colCapacity; r++){
+          const cy = execY + EXECUTOR_HEADER_SPACE + r * (CORE_SIZE + CORE_SPACE);
+          // a core is 'used' if the column holds an executor and the executor consumes that core index
+          const usedFlag = isUsed && (r < execCores);
+          drawVcpu(ctx, coreColX, cy, usedFlag);
         }
       }
 
-      // draw leftover cores in gray
-      const nodeCores = Math.max(1, Math.floor(Number(nodeVcpus.value) || 1));
-      const usedCores = per * Math.max(1, Number(executorCores.value) || 1);
-      const leftover = Math.max(0, nodeCores - usedCores);
-      if(leftover > 0){
-        const leftX = per > 0 ? startX + per * spacingX : startX + Math.round((nodeW - execWidth) / 2) + execWidth + CORE_SPACE;
-        for(let l=0; l<leftover; l++){
-          const ly = execY + EXECUTOR_HEADER_SPACE + l * (CORE_SIZE + CORE_SPACE);
-          drawVcpu(ctx, leftX, ly, false);
-        }
-      }
+      // NOTE: any executors beyond colsPerNode (shouldn't happen with normal capacity math) will be ignored here —
+      // they are counted as unplaced in the distribution and shown in the summary.
 
       // summary text on node
       ctx.fillStyle='#0b3255'; ctx.fillText(per + ' / ' + distribution.slotsPerNode + ' executors', x + 12, y + nodeHeight - 8);
@@ -208,24 +216,34 @@
     const params = {
       executorCores: Number(executorCores.value) || 1,
       executorMemoryGb: Number(executorMemoryGb.value) || 1,
-      maxExecutors: Number(maxExecutors.value) || 0,
-      numNodes: Number(numNodes.value) || 1,
+  maxExecutors: Number(maxExecutors.value) || 0,
       nodeVcpus: Number(nodeVcpus.value) || 1,
       nodeMemoryGb: Number(nodeMemoryGb.value) || 1,
-      fixedNodes: fixedNodes.checked
+    fixedNodes: false
     };
 
     const distribution = computeDistribution(params);
 
-    // summary text
-    let txt = `Slots/node: ${distribution.slotsPerNode}. `;
-    if(params.fixedNodes){
-      txt += `Using ${params.numNodes} node(s). `;
-      txt += distribution.unplaced>0 ? `Unplaced executors: ${distribution.unplaced}.` : `All ${params.maxExecutors} placed.`;
-    } else {
-      txt += `Nodes needed: ${distribution.nodesNeeded}. Total executors: ${params.maxExecutors}.`;
+    // summary text: nodes needed, unplaced (if any), and total unused vCPUs with number
+    let txt = `Nodes needed: <b>${distribution.nodesNeeded}</b>, `;
+    if(distribution.unplaced && distribution.unplaced > 0){
+      txt += `Unplaced executors: <b>${distribution.unplaced}.</b> `;
     }
-    summary.textContent = txt;
+
+    // compute total unused vCPUs across all nodes (node vCPUs minus used cores per node)
+    const totalUnusedVcpus = (distribution.perNode || []).reduce((acc, placed) => {
+      const usedCores = Math.max(0, placed) * Math.max(1, params.executorCores);
+      const unused = Math.max(0, Math.floor(params.nodeVcpus) - usedCores);
+      return acc + unused;
+    }, 0);
+
+    // render summary as HTML and bold numeric values
+    txt += ` Unused vCPUs: <b>${totalUnusedVcpus}</b>`;
+    // if there's an unplaced count, bold that as well
+    if(distribution.unplaced && distribution.unplaced > 0){
+      txt = txt.replace(`Unplaced executors: ${distribution.unplaced}.`, `Unplaced executors: <strong>${distribution.unplaced}</strong>.`);
+    }
+    summary.innerHTML = txt;
 
   // compute layout to avoid zooming nodes; layout uses CSS pixels
   // use the parent container width to decide how many nodes fit per row (prevents canvas CSS scaling horizontally)
@@ -258,13 +276,15 @@
   const requiredWidth = PAD + totalGridWidth + PAD;
   const requiredHeight = PAD + rows * nodeHeight + Math.max(0, rows - 1) * NODE_GAP + PAD;
 
-  // set canvas DOM/CSS size so the page will scroll instead of scaling canvas content
-  canvas.style.width = requiredWidth + 'px';
+  // clamp grid width to container width so there's no horizontal scrolling (grid will wrap nodes)
+  const clampedWidth = Math.max(containerW, Math.min(requiredWidth, containerW));
+  // use clampedWidth for CSS width so the canvas fits the container (no horizontal scroll)
+  canvas.style.width = clampedWidth + 'px';
   canvas.style.height = requiredHeight + 'px';
 
   // now set canvas bitmap size according to DPR and CSS size (use CSS sizes we just set)
   const ratio = window.devicePixelRatio || 1;
-  const w = requiredWidth;
+  const w = clampedWidth;
   const h = requiredHeight;
   canvas.width = Math.floor(w * ratio);
   canvas.height = Math.floor(h * ratio);
@@ -297,16 +317,15 @@
   const debouncedUpdate = debounce(updateUI, 120);
 
   // attach listeners to all inputs for live update
-  [executorCores, executorMemoryGb, maxExecutors, numNodes, nodeVcpus, nodeMemoryGb].forEach(el => {
+  [executorCores, executorMemoryGb, maxExecutors, nodeVcpus, nodeMemoryGb].forEach(el => {
     if(el) el.addEventListener('input', debouncedUpdate);
   });
-  if(fixedNodes) fixedNodes.addEventListener('change', debouncedUpdate);
 
   // keyboard-reset: double-click on header to reset defaults
   const header = document.querySelector('header');
   if(header){
     header.addEventListener('dblclick', ()=>{
-      executorCores.value=4; executorMemoryGb.value=8; maxExecutors.value=10; numNodes.value=3; nodeVcpus.value=16; nodeMemoryGb.value=64; fixedNodes.checked=false; updateUI();
+      executorCores.value=4; executorMemoryGb.value=8; maxExecutors.value=10; nodeVcpus.value=16; nodeMemoryGb.value=64; updateUI();
     });
   }
 
