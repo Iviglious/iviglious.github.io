@@ -6,6 +6,7 @@
   // DOM refs
   const executorCores = $('executorCores');
   const executorMemoryGb = $('executorMemoryGb');
+  const executorOverheadPercent = $('executorOverheadPercent');
   const maxExecutors = $('maxExecutors');
   const nodeVcpus = $('nodeVcpus');
   const nodeMemoryGb = $('nodeMemoryGb');
@@ -29,6 +30,8 @@
   const INSET_SIZE = 4;
   const SHADOW_BLUR = 0;
   const SHADOW_OFFSET = 3;
+  // number of AM executors reserved cluster-wide
+  const AM_EXECUTORS = 1;
 
   // color helpers
   function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
@@ -41,46 +44,80 @@
   function computeDistribution(params){
     // simple model: slotsPerNode = floor(nodeVcpus / executorCores) also consider memory
     const coresPerExec = Math.max(1, Math.floor(params.executorCores));
-    const memPerExec = Math.max(1, params.executorMemoryGb);
+    // account for executor memory overhead percentage
+    const overhead = Math.max(0, Math.min(100, Number(params.executorOverheadPercent) || 0));
+    const memPerExec = Math.max(0.001, params.executorMemoryGb * (1 + overhead / 100));
     const coresPerNode = Math.max(1, Math.floor(params.nodeVcpus));
     const memPerNode = Math.max(1, params.nodeMemoryGb);
 
-    const slotsByCores = Math.floor(coresPerNode / coresPerExec);
+    // number of executors that would fit by CPU alone
+    let slotsByCores = Math.floor(coresPerNode / coresPerExec);
+    // number of executors that fit by memory if configured executor memory (with overhead) is used
     const slotsByMem = Math.floor(memPerNode / memPerExec);
+
+    // If the user-selected executor memory (including overhead) is larger than the
+    // fair share when using the cores-based slot count, reduce the cores-based
+    // count until the configured executor memory fits into node memory.
+    // This enforces: if configured executor memory is too large, we place fewer
+    // executors per node (even if CPU would allow more).
+    if (slotsByCores > 0) {
+      const configuredExecWithOverhead = memPerExec; // already includes overhead
+      while (slotsByCores > 0) {
+        const perExecRaw = Math.floor(memPerNode / slotsByCores); // GB available per executor before overhead
+        // if the node can't even give 1GB per exec, break to avoid infinite loop
+        if (perExecRaw <= 0) { slotsByCores = 0; break; }
+        // allowed configured exec size after removing overhead (rough check)
+        const allowedAfterOverhead = Math.floor(perExecRaw * (1 - overhead / 100));
+        // if the configured executor memory (without stripping overhead) is <= allowedAfterOverhead,
+        // then the configured executor will fit when overhead is applied
+        if (Math.floor(params.executorMemoryGb) <= allowedAfterOverhead) break;
+        // otherwise reduce the cores-based slot count and retry
+        slotsByCores--;
+      }
+    }
+
     const slotsPerNode = Math.max(0, Math.min(slotsByCores, slotsByMem));
 
+    // Account for reserved AM executors cluster-wide
+    const amCount = AM_EXECUTORS;
+    const userRequested = Math.max(0, Number(params.maxExecutors) || 0);
+    const totalToPlace = userRequested + amCount;
+
     let nodesNeeded = 0;
-    let unplaced = 0;
     let perNode = [];
 
-    if(params.fixedNodes){
-      nodesNeeded = params.numNodes;
-      const capacity = slotsPerNode * nodesNeeded;
-      const placed = Math.min(capacity, params.maxExecutors);
-      unplaced = Math.max(0, params.maxExecutors - placed);
-      // distribute evenly (simple fill)
-      let remaining = Math.min(placed, capacity);
+    if (slotsPerNode === 0){
+        // decide if this column is the AM slot(s) (placed on first node's first columns)
+        const isAmHere = distribution.amPlaced && (idx === distribution.amNodeIndex) && (colIdx < AM_EXECUTORS);
+      // perNode stays empty
+    } else {
+      nodesNeeded = Math.ceil(totalToPlace / slotsPerNode);
+      let remaining = totalToPlace;
       for(let i=0;i<nodesNeeded;i++){
         const take = Math.min(slotsPerNode, remaining);
         perNode.push(take);
         remaining -= take;
       }
-    } else {
-      if(slotsPerNode === 0){
-        nodesNeeded = Math.ceil(params.maxExecutors / 1); // each executor needs at least something
-        unplaced = params.maxExecutors;
-      } else {
-        nodesNeeded = Math.ceil(params.maxExecutors / slotsPerNode);
-        let remaining = params.maxExecutors;
-        for(let i=0;i<nodesNeeded;i++){
-          const take = Math.min(slotsPerNode, remaining);
-          perNode.push(take);
-          remaining -= take;
-        }
+    }
+
+    // Determine AM placement: AM executors occupy the first slots in node 0 (if any)
+    let amPlaced = false;
+    let amNodeIndex = -1;
+    if(perNode.length > 0){
+      // find node that gets the AM (first node with at least 1 slot filled)
+      let cum = 0;
+      for(let i=0;i<perNode.length;i++){
+        if(perNode[i] > 0){ amPlaced = true; amNodeIndex = i; break; }
+        cum += perNode[i];
       }
     }
 
-    return { slotsPerNode, nodesNeeded, perNode, unplaced };
+    // Calculate how many user executors were actually placed (total placed minus AM if placed)
+    const placedTotal = (perNode || []).reduce((a,b)=>a+b,0);
+    const placedUser = Math.max(0, placedTotal - (amPlaced ? amCount : 0));
+    const unplacedUser = Math.max(0, userRequested - placedUser);
+
+    return { slotsPerNode, nodesNeeded, perNode, unplaced: unplacedUser, amPlaced, amNodeIndex };
   }
 
   // draw a beveled rectangle (outset/inset)
@@ -179,20 +216,23 @@
       const execCores = Math.max(1, Number(executorCores.value) || 1);
 
       // draw capacity columns (colsPerNode) — each column's vCPU count comes from node vCPUs
-      for(let colIdx = 0; colIdx < layout.colsPerNode; colIdx++){
+          for(let colIdx = 0; colIdx < layout.colsPerNode; colIdx++){
         const colX = startX + colIdx * spacingX;
         const isUsed = colIdx < per;
+            // decide if this column is the AM slot(s) (placed on first node's first columns)
+            const isAmHere = distribution.amPlaced && (idx === distribution.amNodeIndex) && (colIdx < AM_EXECUTORS);
 
         // compute how many vCPUs this column represents: full execCores except possibly the last column
         const isLastCol = (colIdx === layout.colsPerNode - 1);
         const colCapacity = isLastCol ? Math.max(1, nodeCores - execCores * (layout.colsPerNode - 1)) : execCores;
 
-        if(isUsed){
-          // draw executor box for used column
-          drawBeveledRect(ctx, colX, execY, execWidth, nodeHeight - NODE_HEADER_SPACE - NODE_FOOTER_SPACE, {filled:true, style:'outset', color:'#f8fbff'});
-          ctx.fillStyle = '#0b3255'; ctx.font='11px Segoe UI';
-          ctx.fillText('Ex ' + (colIdx+1), colX + 6, execY + 12);
-        }
+            if(isUsed){
+              // draw executor box for used column; use khaki for AM
+              const color = isAmHere ? '#f0e68c' : '#f8fbff';
+              drawBeveledRect(ctx, colX, execY, execWidth, nodeHeight - NODE_HEADER_SPACE - NODE_FOOTER_SPACE, {filled:true, style:'outset', color});
+              ctx.fillStyle = '#0b3255'; ctx.font='11px Segoe UI';
+              ctx.fillText(isAmHere ? 'AM' : ('Ex ' + (colIdx+1)), colX + 6, execY + 12);
+            }
 
         // draw vertical cores in this column — number equals column capacity; colored if column is used
         const coreColX = colX + Math.round((execWidth - CORE_SIZE) / 2);
@@ -216,6 +256,7 @@
     const params = {
       executorCores: Number(executorCores.value) || 1,
       executorMemoryGb: Number(executorMemoryGb.value) || 1,
+      executorOverheadPercent: Number(executorOverheadPercent && executorOverheadPercent.value) || 20,
   maxExecutors: Number(maxExecutors.value) || 0,
       nodeVcpus: Number(nodeVcpus.value) || 1,
       nodeMemoryGb: Number(nodeMemoryGb.value) || 1,
@@ -225,9 +266,9 @@
     const distribution = computeDistribution(params);
 
     // summary text: nodes needed, unplaced (if any), and total unused vCPUs with number
-    let txt = `Nodes needed: <b>${distribution.nodesNeeded}</b>, `;
+    let txt = `Nodes needed: <b>${distribution.nodesNeeded}</b> `;
     if(distribution.unplaced && distribution.unplaced > 0){
-      txt += `Unplaced executors: <b>${distribution.unplaced}.</b> `;
+      txt += `Unplaced executors: <b>${distribution.unplaced}</b> `;
     }
 
     // compute total unused vCPUs across all nodes (node vCPUs minus used cores per node)
@@ -238,11 +279,21 @@
     }, 0);
 
     // render summary as HTML and bold numeric values
-    txt += ` Unused vCPUs: <b>${totalUnusedVcpus}</b>`;
-    // if there's an unplaced count, bold that as well
-    if(distribution.unplaced && distribution.unplaced > 0){
-      txt = txt.replace(`Unplaced executors: ${distribution.unplaced}.`, `Unplaced executors: <strong>${distribution.unplaced}</strong>.`);
+    txt += ` • Unused vCPUs: <b>${totalUnusedVcpus}</b>`;
+
+    // compute max executor memory per node using the requested formula:
+    // 1) executorsPerNode = distribution.slotsPerNode
+    // 2) perExecRaw = floor(nodeMemoryGb / executorsPerNode) [GB]
+    // 3) final = floor(perExecRaw * (1 - overhead%/100))
+    const executorsPerNode = Math.max(0, distribution.slotsPerNode || 0);
+    let maxExecutorMemGb = 0;
+    if(executorsPerNode > 0){
+      const perExecRaw = Math.floor(Number(params.nodeMemoryGb) / executorsPerNode);
+      const overheadPct = Number(params.executorOverheadPercent) || 0;
+      maxExecutorMemGb = Math.floor(perExecRaw * (1 - overheadPct / 100));
     }
+    txt += ` • Max calculated executor memory: <b>${maxExecutorMemGb} GB</b>`;
+
     summary.innerHTML = txt;
 
   // compute layout to avoid zooming nodes; layout uses CSS pixels
@@ -317,7 +368,7 @@
   const debouncedUpdate = debounce(updateUI, 120);
 
   // attach listeners to all inputs for live update
-  [executorCores, executorMemoryGb, maxExecutors, nodeVcpus, nodeMemoryGb].forEach(el => {
+  [executorCores, executorMemoryGb, executorOverheadPercent, maxExecutors, nodeVcpus, nodeMemoryGb].forEach(el => {
     if(el) el.addEventListener('input', debouncedUpdate);
   });
 
