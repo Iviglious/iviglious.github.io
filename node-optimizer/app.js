@@ -16,7 +16,7 @@
   const ctx = canvas.getContext('2d');
 
   // Layout / visual constants (tweakable)
-  const PAD = 20;
+  const PAD = 20; // general padding between elements
   const CORE_SIZE = 20; // px per core cube
   const CORE_SPACE = 40; // vertical spacing between stacked core icons
   const NODE_WIDTH = 220; // fixed node width to avoid zooming on resize
@@ -208,10 +208,11 @@
   ctx.fillStyle = '#083049'; ctx.font='12px Segoe UI';
   ctx.fillText('Node ' + (idx+1) + (unusedPerNode > 0 ? ' — ' + unusedPerNode + ' unused vCPUs' : ''), x + 12, y + 14);
 
-      // compute starting X so executor capacity columns are centered inside the node
-      // always use colsPerNode so all nodes look identical
-      const totalSpan = (layout.colsPerNode - 1) * spacingX + execWidth;
-      const startX = x + Math.max(12, Math.round((nodeW - totalSpan) / 2));
+  // compute starting X using PAD so side padding stays constant
+  // (avoids shifting executors inward as counts change)
+  // always use colsPerNode so all nodes look identical
+  const totalSpan = (layout.colsPerNode - 1) * spacingX + execWidth;
+  const startX = x + PAD;
 
       const execY = y + NODE_HEADER_SPACE;
       const execCores = Math.max(1, Number(executorCores.value) || 1);
@@ -309,11 +310,11 @@
 
   // executor box metrics
   const execWidth = CORE_SIZE + EXECUTOR_H_PADDING * 2;
-  const spacingX = CORE_SIZE + CORE_SPACE;
+  const spacingX = execWidth + PAD;
 
   // node width is determined by how many executor columns fit given node cores
-  const colsPerNode = Math.max(1, Math.ceil(nodeCores / execCores));
-  const nodeW = colsPerNode * execWidth + Math.max(0, colsPerNode - 1) * CORE_SPACE + 24;
+    const colsPerNode = Math.max(1, Math.ceil(nodeCores / execCores));
+    const nodeW = PAD + colsPerNode * (execWidth + PAD);
 
   // grid dimensions (how many node boxes fit into the container width)
   const columns = Math.max(1, Math.floor((areaW + NODE_GAP) / (nodeW + NODE_GAP)));
@@ -407,6 +408,22 @@
 
       const tr = document.createElement('tr');
       tr.innerHTML = `<td>${cores}</td><td>${unusedPerNode}</td><td>${maxExecMem}</td><td>${maxExecutorsByTarget}</td><td>${shufflePartitions}</td>`;
+      // Show Configuration button cell
+      const tdBtn = document.createElement('td');
+      const btn = document.createElement('button');
+      btn.textContent = `${cores} Cores`;
+      btn.addEventListener('click', ()=>{
+        // populate inputs with values from this row
+        if(executorCores) executorCores.value = cores;
+        if(executorMemoryGb) executorMemoryGb.value = maxExecMem;
+        if(maxExecutors) maxExecutors.value = maxExecutorsByTarget;
+        // switch to visual tab
+        showTab('visual');
+        // trigger immediate UI update
+        updateUI();
+      });
+      tdBtn.appendChild(btn);
+      tr.appendChild(tdBtn);
       optimalTableBody.appendChild(tr);
     }
   }
