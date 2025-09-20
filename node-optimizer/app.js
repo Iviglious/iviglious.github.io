@@ -8,6 +8,7 @@
   const executorMemoryGb = $('executorMemoryGb');
   const executorOverheadPercent = $('executorOverheadPercent');
   const maxExecutors = $('maxExecutors');
+  const targetMaxNodes = $('targetMaxNodes');
   const nodeVcpus = $('nodeVcpus');
   const nodeMemoryGb = $('nodeMemoryGb');
   const summary = $('summary');
@@ -356,6 +357,76 @@
   draw(distribution, layout);
   }
 
+  // Tab switching for Visual / Optimal Combinations
+  const tabVisualBtn = document.getElementById('tab-visual-btn');
+  const tabOptimalBtn = document.getElementById('tab-optimal-btn');
+  const tabVisual = document.getElementById('tab-visual');
+  const tabOptimal = document.getElementById('tab-optimal');
+  const optimalTableBody = document.getElementById('optimalTableBody');
+
+  function showTab(name){
+    if(name === 'visual'){
+      tabVisual.style.display = '';
+      tabOptimal.style.display = 'none';
+      tabVisualBtn.classList.add('active');
+      tabOptimalBtn.classList.remove('active');
+    } else {
+      tabVisual.style.display = 'none';
+      tabOptimal.style.display = '';
+      tabVisualBtn.classList.remove('active');
+      tabOptimalBtn.classList.add('active');
+    }
+  }
+
+  tabVisualBtn.addEventListener('click', ()=> showTab('visual'));
+  tabOptimalBtn.addEventListener('click', ()=> showTab('optimal'));
+
+  // compute optimal combinations table (called from updateUI)
+  function populateOptimalTable(params){
+    // clear
+    optimalTableBody.innerHTML = '';
+    const maxCores = Math.max(2, Math.floor(params.nodeVcpus));
+    const targetNodes = Math.max(1, Number(targetMaxNodes && targetMaxNodes.value) || 1);
+    for(let cores = 2; cores <= maxCores; cores++){
+      // Prioritize CPU: compute slots purely by cores (floor(nodeVcpus / cores))
+      const slotsPerNodeByCores = Math.max(0, Math.floor(Number(params.nodeVcpus) / cores));
+      const unusedPerNode = Math.max(0, Math.floor(Number(params.nodeVcpus)) - (slotsPerNodeByCores * cores));
+
+      // derive max executor memory by dividing node memory by slotsPerNode (cores-first), then apply overhead
+      let maxExecMem = 0;
+      if(slotsPerNodeByCores > 0){
+        const perExecRaw = Math.floor(Number(params.nodeMemoryGb) / slotsPerNodeByCores);
+        const overheadPct = Number(params.executorOverheadPercent) || 0;
+        maxExecMem = Math.floor(perExecRaw * (1 - overheadPct / 100));
+      }
+
+      // compute max executors using target nodes: slotsPerNodeByCores * targetNodes minus AMs
+      const maxExecutorsByTarget = Math.max(0, (slotsPerNodeByCores * targetNodes) - AM_EXECUTORS);
+  // shuffle partitions heuristic: cores per executor * number of executors * 4
+  const shufflePartitions = Math.max(1, cores * maxExecutorsByTarget * 4);
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${cores}</td><td>${unusedPerNode}</td><td>${maxExecMem}</td><td>${maxExecutorsByTarget}</td><td>${shufflePartitions}</td>`;
+      optimalTableBody.appendChild(tr);
+    }
+  }
+
+  // enhance updateUI to also populate the table
+  const originalUpdateUI = updateUI;
+  updateUI = function(){
+    originalUpdateUI();
+    const params = {
+      executorCores: Number(executorCores.value) || 1,
+      executorMemoryGb: Number(executorMemoryGb.value) || 1,
+      executorOverheadPercent: Number(executorOverheadPercent && executorOverheadPercent.value) || 20,
+      maxExecutors: Number(maxExecutors.value) || 0,
+      nodeVcpus: Number(nodeVcpus.value) || 1,
+      nodeMemoryGb: Number(nodeMemoryGb.value) || 1,
+      fixedNodes: false
+    };
+    populateOptimalTable(params);
+  };
+
   // debounce helper
   function debounce(fn, wait){
     let t = null;
@@ -368,7 +439,7 @@
   const debouncedUpdate = debounce(updateUI, 120);
 
   // attach listeners to all inputs for live update
-  [executorCores, executorMemoryGb, executorOverheadPercent, maxExecutors, nodeVcpus, nodeMemoryGb].forEach(el => {
+  [executorCores, executorMemoryGb, executorOverheadPercent, maxExecutors, targetMaxNodes, nodeVcpus, nodeMemoryGb].forEach(el => {
     if(el) el.addEventListener('input', debouncedUpdate);
   });
 

@@ -24,15 +24,46 @@
         <div class="inputs">
           <label>Executor cores:<input id="executorCores" type="number" min="1" max="999" value="8" inputmode="numeric"></label>
           <label>Executor memory (GB):<input id="executorMemoryGb" type="number" min="1" max="999" step="1" value="48" inputmode="decimal"></label>
-          <label>Max executors:<input id="maxExecutors" type="number" min="1" max="999" value="7" inputmode="numeric"></label>
+           <label>Max executors:<input id="maxExecutors" type="number" min="1" max="999" value="7" inputmode="numeric"></label>
         </div>
       </section>
     </div>
 
-    <section class="visual">
-      <div class="summary" id="summary"></div>
-      <canvas id="canvas" width="900" height="500" aria-label="Node and executors visualization"></canvas>
-    </section>
+    <div class="tabs">
+      <div class="tab-buttons">
+        <button id="tab-visual-btn" class="active">Visual</button>
+        <button id="tab-optimal-btn">Optimal Combinations</button>
+      </div>
+
+      <div id="tab-visual" class="tab-panel">
+        <section class="visual">
+          <div class="summary" id="summary"></div>
+          <canvas id="canvas" width="900" height="500" aria-label="Node and executors visualization"></canvas>
+        </section>
+      </div>
+
+      <div id="tab-optimal" class="tab-panel" style="display:none; padding:12px;">
+        <h2>Optimal Combinations</h2>
+        <label>Target max nodes:<input id="targetMaxNodes" type="number" min="1" max="999" value="2" inputmode="numeric"></label>
+        <p>Rows show executor cores from 2 up to node vCPUs. Values recompute as inputs change.</p>
+        <div class="optimal-table-wrap">
+          <table id="optimalTable" border="1" cellpadding="6" cellspacing="0">
+            <thead>
+              <tr>
+                <th>Executor cores</th>
+                <th>Unused cores</th>
+                <th>Max executor memory (GB)</th>
+                <th>Max executors</th>
+                <th>Shuffle partitions</th>
+              </tr>
+            </thead>
+            <tbody id="optimalTableBody">
+              <!-- rows injected by app.js -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </main>
 
   <footer>
