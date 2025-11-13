@@ -29,12 +29,15 @@
           <b>Parameters: </b> 
           <label>Node vCPUs:<input id="nodeVcpus" type="number" min="1" max="999" value="32" inputmode="numeric"></label>
           <label>Node memory (GB):<input id="nodeMemoryGb" type="number" min="1" max="999" step="1" value="244" inputmode="numeric"></label>
-          <label>Executor memory overhead %:<input id="executorOverheadPercent" type="number" min="0" max="100" step="1" value="20" inputmode="numeric"></label>
+          <label>spark.executor.memoryOverheadFactor:
+            <input id="executorOverheadFactor" type="number" min="0.0" max="100.0" step="0.0001" value="0.1875" inputmode="decimal">
+            <small class="hint" title="Enter 0.1875 for 18.75% overhead">Enter 0.1875 for 18.75% overhead</small>
+          </label>
         </div>
         <div class="inputs">
-          <label>Executor cores:<input id="executorCores" type="number" min="1" max="999" value="8" inputmode="numeric"></label>
-          <label>Executor memory (GB):<input id="executorMemoryGb" type="number" min="1" max="999" step="1" value="48" inputmode="decimal"></label>
-           <label>Max executors:<input id="maxExecutors" type="number" min="1" max="999" value="7" inputmode="numeric"></label>
+          <label>spark.executor.cores:<input id="executorCores" type="number" min="1" max="999" value="8" inputmode="numeric"></label>
+          <label>spark.executor.memory (GB):<input id="executorMemoryGb" type="number" min="1" max="999" step="1" value="49" inputmode="decimal"></label>
+           <label>spark.dynamicAllocation.maxExecutors:<input id="maxExecutors" type="number" min="1" max="999" value="7" inputmode="numeric"></label>
         </div>
       </section>
     </div>
