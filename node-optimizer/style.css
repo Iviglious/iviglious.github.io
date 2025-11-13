@@ -9,9 +9,10 @@ main{display:block;padding:8px 20px}
 .controls h2{margin:0 0 8px 0;font-size:14px}
 .inputs{display:flex;flex-wrap:wrap;gap:8px;padding:5px;}
 .inputs label{display:flex;align-items:center;gap:6px;font-size:13px}
-.inputs input[type=number]{width:64px;padding:6px;border-radius:4px;border:1px solid #cfdfee}
-/* make numeric inputs show bold values */
-.inputs input[type=number]{font-weight:700}
+.inputs input[type=number]{width:70px;padding:6px;border-radius:4px;border:1px solid #cfdfee;font-weight:700}
+/* small inline hint/help text next to inputs */
+.hint{font-size:12px;color:#3b556e;margin-left:8px}
+.hint[title]{cursor:help}
 .actions{display:flex;gap:8px;margin-top:12px}
 .actions button{padding:8px 10px;border-radius:6px;border:0;background:#0b6cff;color:white;cursor:pointer}
 .visual{margin-top:14px;background:#fff;padding:12px;border-radius:8px;box-shadow:0 4px 16px rgba(8,40,64,.06)}

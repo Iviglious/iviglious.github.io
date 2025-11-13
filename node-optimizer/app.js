@@ -6,7 +6,7 @@
   // DOM refs
   const executorCores = $('executorCores');
   const executorMemoryGb = $('executorMemoryGb');
-  const executorOverheadPercent = $('executorOverheadPercent');
+  const executorOverheadFactor = $('executorOverheadFactor');
   const maxExecutors = $('maxExecutors');
   const targetMaxNodes = $('targetMaxNodes');
   const nodeVcpus = $('nodeVcpus');
@@ -45,9 +45,9 @@
   function computeDistribution(params){
     // simple model: slotsPerNode = floor(nodeVcpus / executorCores) also consider memory
     const coresPerExec = Math.max(1, Math.floor(params.executorCores));
-    // account for executor memory overhead percentage
-    const overhead = Math.max(0, Math.min(100, Number(params.executorOverheadPercent) || 0));
-    const memPerExec = Math.max(0.001, params.executorMemoryGb * (1 + overhead / 100));
+    // account for executor memory overhead factor (e.g. 0.20 for 20%)
+    const overheadFct = Math.max(0.0, Number(params.executorOverheadFactor) || 0.0);
+    const memPerExec = Math.max(0.001, params.executorMemoryGb * (1.0 + overheadFct));
     const coresPerNode = Math.max(1, Math.floor(params.nodeVcpus));
     const memPerNode = Math.max(1, params.nodeMemoryGb);
 
@@ -68,10 +68,10 @@
         // if the node can't even give 1GB per exec, break to avoid infinite loop
         if (perExecRaw <= 0) { slotsByCores = 0; break; }
         // allowed configured exec size after removing overhead (rough check)
-        const allowedAfterOverhead = Math.floor(perExecRaw * (1 - overhead / 100));
-        // if the configured executor memory (without stripping overhead) is <= allowedAfterOverhead,
+        const allowedAfterOverheadFct = Math.floor(perExecRaw * (1.0 - overheadFct));
+        // if the configured executor memory (without stripping overheadFct) is <= allowedAfterOverheadFct,
         // then the configured executor will fit when overhead is applied
-        if (Math.floor(params.executorMemoryGb) <= allowedAfterOverhead) break;
+        if (Math.floor(params.executorMemoryGb) <= allowedAfterOverheadFct) break;
         // otherwise reduce the cores-based slot count and retry
         slotsByCores--;
       }
@@ -258,11 +258,11 @@
     const params = {
       executorCores: Number(executorCores.value) || 1,
       executorMemoryGb: Number(executorMemoryGb.value) || 1,
-      executorOverheadPercent: Number(executorOverheadPercent && executorOverheadPercent.value) || 20,
-  maxExecutors: Number(maxExecutors.value) || 0,
+      executorOverheadFactor: Number(executorOverheadFactor && executorOverheadFactor.value) || 0.1875,
+      maxExecutors: Number(maxExecutors.value) || 0,
       nodeVcpus: Number(nodeVcpus.value) || 1,
       nodeMemoryGb: Number(nodeMemoryGb.value) || 1,
-    fixedNodes: false
+      fixedNodes: false
     };
 
     const distribution = computeDistribution(params);
@@ -286,13 +286,13 @@
     // compute max executor memory per node using the requested formula:
     // 1) executorsPerNode = distribution.slotsPerNode
     // 2) perExecRaw = floor(nodeMemoryGb / executorsPerNode) [GB]
-    // 3) final = floor(perExecRaw * (1 - overhead%/100))
+    // 3) final = floor(perExecRaw * (1.0 - overheadFact))
     const executorsPerNode = Math.max(0, distribution.slotsPerNode || 0);
     let maxExecutorMemGb = 0;
     if(executorsPerNode > 0){
       const perExecRaw = Math.floor(Number(params.nodeMemoryGb) / executorsPerNode);
-      const overheadPct = Number(params.executorOverheadPercent) || 0;
-      maxExecutorMemGb = Math.floor(perExecRaw * (1 - overheadPct / 100));
+      const overheadFct = Number(params.executorOverheadFactor) || 0.0;
+      maxExecutorMemGb = Math.floor(perExecRaw * (1.0 - overheadFct));
     }
     txt += ` • Max calculated executor memory: <b>${maxExecutorMemGb} GB</b>`;
 
@@ -397,8 +397,8 @@
       let maxExecMem = 0;
       if(slotsPerNodeByCores > 0){
         const perExecRaw = Math.floor(Number(params.nodeMemoryGb) / slotsPerNodeByCores);
-        const overheadPct = Number(params.executorOverheadPercent) || 0;
-        maxExecMem = Math.floor(perExecRaw * (1 - overheadPct / 100));
+        const overheadFct = Number(params.executorOverheadFactor) || 0.0;
+        maxExecMem = Math.floor(perExecRaw * (1.0 - overheadFct));
       }
 
       // compute max executors using target nodes: slotsPerNodeByCores * targetNodes minus AMs
@@ -433,14 +433,14 @@
   updateUI = function(){
     originalUpdateUI();
     const params = {
-      executorCores: Number(executorCores.value) || 1,
-      executorMemoryGb: Number(executorMemoryGb.value) || 1,
-      executorOverheadPercent: Number(executorOverheadPercent && executorOverheadPercent.value) || 20,
-      maxExecutors: Number(maxExecutors.value) || 0,
-      nodeVcpus: Number(nodeVcpus.value) || 1,
-      nodeMemoryGb: Number(nodeMemoryGb.value) || 1,
-      fixedNodes: false
-    };
+        executorCores: Number(executorCores.value) || 1,
+        executorMemoryGb: Number(executorMemoryGb.value) || 1,
+  executorOverheadFactor: Number(executorOverheadFactor && executorOverheadFactor.value) || 0.1875,
+        maxExecutors: Number(maxExecutors.value) || 0,
+        nodeVcpus: Number(nodeVcpus.value) || 1,
+        nodeMemoryGb: Number(nodeMemoryGb.value) || 1,
+        fixedNodes: false
+      };
     populateOptimalTable(params);
   };
 
@@ -456,7 +456,7 @@
   const debouncedUpdate = debounce(updateUI, 120);
 
   // attach listeners to all inputs for live update
-  [executorCores, executorMemoryGb, executorOverheadPercent, maxExecutors, targetMaxNodes, nodeVcpus, nodeMemoryGb].forEach(el => {
+  [executorCores, executorMemoryGb, executorOverheadFactor, maxExecutors, targetMaxNodes, nodeVcpus, nodeMemoryGb].forEach(el => {
     if(el) el.addEventListener('input', debouncedUpdate);
   });
 
