@@ -329,15 +329,14 @@
   const requiredWidth = PAD + totalGridWidth + PAD;
   const requiredHeight = PAD + rows * nodeHeight + Math.max(0, rows - 1) * NODE_GAP + PAD;
 
-  // clamp grid width to container width so there's no horizontal scrolling (grid will wrap nodes)
-  const clampedWidth = Math.max(containerW, Math.min(requiredWidth, containerW));
-  // use clampedWidth for CSS width so the canvas fits the container (no horizontal scroll)
-  canvas.style.width = clampedWidth + 'px';
+  // allow canvas to expand beyond container width to show all content with horizontal scroll if needed
+  const finalWidth = Math.max(requiredWidth, containerW);
+  canvas.style.width = finalWidth + 'px';
   canvas.style.height = requiredHeight + 'px';
 
   // now set canvas bitmap size according to DPR and CSS size (use CSS sizes we just set)
   const ratio = window.devicePixelRatio || 1;
-  const w = clampedWidth;
+  const w = finalWidth;
   const h = requiredHeight;
   canvas.width = Math.floor(w * ratio);
   canvas.height = Math.floor(h * ratio);
@@ -379,16 +378,19 @@
     }
   }
 
-  tabVisualBtn.addEventListener('click', ()=> showTab('visual'));
+  tabVisualBtn.addEventListener('click', ()=> {
+    showTab('visual');
+    updateUI();
+  });
   tabOptimalBtn.addEventListener('click', ()=> showTab('optimal'));
 
   // compute optimal combinations table (called from updateUI)
   function populateOptimalTable(params){
     // clear
     optimalTableBody.innerHTML = '';
-    const maxCores = Math.max(2, Math.floor(params.nodeVcpus));
+    const maxCores = Math.max(1, Math.floor(params.nodeVcpus));
     const targetNodes = Math.max(1, Number(targetMaxNodes && targetMaxNodes.value) || 1);
-    for(let cores = 2; cores <= maxCores; cores++){
+    for(let cores = 1; cores <= maxCores; cores++){
       // Prioritize CPU: compute slots purely by cores (floor(nodeVcpus / cores))
       const slotsPerNodeByCores = Math.max(0, Math.floor(Number(params.nodeVcpus) / cores));
       const unusedPerNode = Math.max(0, Math.floor(Number(params.nodeVcpus)) - (slotsPerNodeByCores * cores));
@@ -455,10 +457,26 @@
 
   const debouncedUpdate = debounce(updateUI, 120);
 
-  // attach listeners to all inputs for live update
-  [executorCores, executorMemoryGb, executorOverheadFactor, maxExecutors, targetMaxNodes, nodeVcpus, nodeMemoryGb].forEach(el => {
+  // attach listeners to all inputs for live update (excluding targetMaxNodes, which only affects the table)
+  [executorCores, executorMemoryGb, executorOverheadFactor, maxExecutors, nodeVcpus, nodeMemoryGb].forEach(el => {
     if(el) el.addEventListener('input', debouncedUpdate);
   });
+
+  // targetMaxNodes only affects the Optimal Combinations table, not the Visual distribution
+  if(targetMaxNodes) {
+    targetMaxNodes.addEventListener('input', () => {
+      const params = {
+        executorCores: Number(executorCores.value) || 1,
+        executorMemoryGb: Number(executorMemoryGb.value) || 1,
+        executorOverheadFactor: Number(executorOverheadFactor && executorOverheadFactor.value) || 0.1875,
+        maxExecutors: Number(maxExecutors.value) || 0,
+        nodeVcpus: Number(nodeVcpus.value) || 1,
+        nodeMemoryGb: Number(nodeMemoryGb.value) || 1,
+        fixedNodes: false
+      };
+      populateOptimalTable(params);
+    });
+  }
 
   // keyboard-reset: double-click on header to reset defaults
   const header = document.querySelector('header');
