@@ -21,7 +21,7 @@ main{display:block;padding:8px 20px}
 .hint[title]{cursor:help}
 .actions{display:flex;gap:8px;margin-top:12px}
 .actions button{padding:8px 10px;border-radius:6px;border:0;background:#0b6cff;color:white;cursor:pointer}
-.visual{background:transparent;border-radius:0;box-shadow:none;overflow:auto;display:flex;flex-direction:column;padding:12px}
+.visual{background:transparent;border-radius:0;box-shadow:none;overflow:auto;display:flex;flex-direction:column}
 .summary{padding:12px 12px 8px 12px;margin:0;font-size:14px}
 /* bold numbers inside the summary */
 .summary strong{font-weight:700}
