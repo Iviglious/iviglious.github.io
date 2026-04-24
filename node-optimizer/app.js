@@ -409,6 +409,9 @@
   const shufflePartitions = Math.max(1, cores * maxExecutorsByTarget * 4);
 
       const tr = document.createElement('tr');
+      if(unusedPerNode === 0) {
+        tr.classList.add('optimal-best');
+      }
       tr.innerHTML = `<td>${cores}</td><td>${unusedPerNode}</td><td>${maxExecMem}</td><td>${maxExecutorsByTarget}</td><td>${shufflePartitions}</td>`;
       // Show Configuration button cell
       const tdBtn = document.createElement('td');

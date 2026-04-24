@@ -15,7 +15,8 @@ main{display:block;padding:8px 20px}
 .controls h2{margin:0 0 8px 0;font-size:14px}
 .inputs{display:flex;flex-wrap:wrap;gap:8px;padding:5px;}
 .inputs label{display:flex;align-items:center;gap:6px;font-size:13px}
-.inputs input[type=number]{width:70px;padding:6px;border-radius:4px;border:1px solid #cfdfee;font-weight:700}
+input[type=number]{width:70px;padding:6px;border-radius:4px;border:1px solid #cfdfee;font-weight:700;text-align:center}
+.target-nodes-label{display:flex;align-items:center;gap:6px;font-size:16px;font-weight:bold}
 /* small inline hint/help text next to inputs */
 .hint{font-size:12px;color:#3b556e;margin-left:8px}
 .hint[title]{cursor:help}
@@ -26,4 +27,6 @@ main{display:block;padding:8px 20px}
 /* bold numbers inside the summary */
 .summary strong{font-weight:700}
 canvas{border-radius:8px;border:1px solid #e6eef6;display:block;padding:12px}
+td,th{text-align:center}
+tr.optimal-best{background-color:#dbe8f5}
 footer{padding:12px 24px;text-align:center}
